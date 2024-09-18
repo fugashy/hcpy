@@ -28,27 +28,13 @@ def download_cascade_file(url, filename):
     print(f"{filename} downloaded.")
 
 
-def _detect(image, classifiers):
-    gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-
-    rectangles = list()
-    for classifier in classifiers:
-        rectangles.append(
-                classifier.detectMultiScale(
-                    gray_image,
-                    scaleFactor=1.1,
-                    minNeighbors=5,
-                    minSize=(10, 10)))
-    return rectangles
-
-
 def process_image(input_file, classifiers):
     image = cv2.imread(input_file)
     if image is None:
         print(f"Error: Could not read image {image_path}")
         return list()
 
-    rectangles_list = _detect(image, classifiers)
+    rectangles_list = [classifier.detectMultiScale(image) for classifier in classifiers]
 
     for rectangles, color in zip(rectangles_list, COLORS):
         for (x, y, w, h) in rectangles:
@@ -72,7 +58,8 @@ def process_video(input_file, classifiers):
 
         if not ret:
             break
-        rectangles_list = _detect(frame, classifiers)
+
+        rectangles_list = [classifier.detectMultiScale(frame) for classifier in classifiers]
 
         for rectangles, color in zip(rectangles_list, COLORS):
             for (x, y, w, h) in rectangles:
@@ -87,29 +74,59 @@ def process_video(input_file, classifiers):
     cv2.destroyAllWindows()
 
 
+class Classifier():
+    def __init__(self, cascate_path, param):
+        self._classifier = cv2.CascadeClassifier(cascate_path)
+        self._p = param
+
+    def detectMultiScale(self, image):
+        gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+
+        return self._classifier.detectMultiScale(
+            gray_image,
+            scaleFactor=self._p["scale_factor"] if "scale_factor" in self._p else 1.1,
+            minNeighbors=self._p["min_neighbors"] if "min_neighbors" in self._p else 5,
+            minSize=self._p["min_size"] if "min_size" in self._p else (10, 10))
+
+
+
 
 @click.command()
 @click.argument('input_file', type=click.Path(exists=False))
 @click.option("--face", is_flag=True, default=False)
 @click.option("--number-plate", is_flag=True, default=False)
 @click.option("--body", is_flag=True, default=False)
-def entry_point(input_file, face, number_plate, body):
+@click.option("--min-size", type=int, nargs=2, default=(30, 30))
+@click.option("--min-neighbors", type=int, default=5)
+@click.option("--scale-factor", type=float, default=1.1)
+def entry_point(
+        input_file,
+        face,
+        number_plate,
+        body, min_size,
+        min_neighbors,
+        scale_factor):
+    param = {
+            "scale_factor": scale_factor,
+            "min_neighbors": min_neighbors,
+            "min_size": min_size,
+            }
     classifiers = list()
     if face:
         cascade_path = '/tmp/haarcascade_frontalface_default.xml'
         download_cascade_file(FACE_CASCADE_URL, cascade_path)
         classifiers.append(
-                cv2.CascadeClassifier(cascade_path))
+                Classifier(cascade_path, param))
     if number_plate:
         cascade_path = '/tmp/haarcascade_russian_plate_number.xml'
         download_cascade_file(PLATE_CASCADE_URL, cascade_path)
         classifiers.append(
-                cv2.CascadeClassifier(cascade_path))
+                Classifier(cascade_path, param))
     if body:
         cascade_path = '/tmp/haarcascade_fullbody.xml'
         download_cascade_file(BODY_CASCADE_URL, cascade_path)
         classifiers.append(
-                cv2.CascadeClassifier(cascade_path))
+                Classifier(cascade_path, param))
 
     if len(classifiers) == 0:
         print("no classifiers")
